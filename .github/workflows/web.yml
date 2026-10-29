@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.7.2
+    # 容器任务默认用 sh（dash），不认识 pipefail。镜像里有 bash。
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
