@@ -1,0 +1,72 @@
+name: Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 检查并导出 Web
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.7.2
+    steps:
+      - uses: actions/checkout@v4
+
+      # 镜像在构建时把模板装进 /root。GitHub Actions 会把 HOME 改成 /github/home，
+      # 不搬过去的话导出会找不到 web_nothreads_release.zip。
+      # 预设 variant/thread_support=false，对应的就是这个 nothreads 模板。
+      - name: 准备导出模板
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/export_templates/4.7.2.stable ~/.local/share/godot/export_templates/
+          test -s ~/.local/share/godot/export_templates/4.7.2.stable/web_nothreads_release.zip
+
+      # .godot/ 不入库。全新检出时先导入，否则后面的脚本和导出用的是未导入资源。
+      - name: 导入资源
+        run: godot --headless --import --path .
+
+      # tools/verify_layout.gd 失败时仍 quit(0)，所以用输出里的 RESULT PASS 当门禁。
+      - name: 关卡布局检查
+        run: |
+          set -o pipefail
+          godot --headless --path . -s res://tools/verify_layout.gd | tee /tmp/layout.txt
+          grep -q "RESULT PASS" /tmp/layout.txt
+
+      - name: 导出 Web
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release "Web" build/web/index.html
+
+      - name: 校验产物
+        run: |
+          test -s build/web/index.html
+          test -s build/web/index.js
+          test -s build/web/index.wasm
+          test -s build/web/index.pck
+          ls -la build/web
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    name: 发布到 Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.page.outputs.page_url }}
+    steps:
+      - id: page
+        uses: actions/deploy-pages@v4
